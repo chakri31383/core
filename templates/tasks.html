@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<div class="max-w-5xl mx-auto">
+
+    <!-- HEADER -->
+    <div class="mb-6">
+        <h2 class="text-3xl font-semibold text-gray-800">Tasks</h2>
+        <p class="text-gray-500 text-sm">Track and manage your team tasks</p>
+    </div>
+
+    <!-- CREATE TASK -->
+    <div id="taskCreateSection" style="display:none;"
+        class="bg-white border rounded-2xl p-6 shadow-sm mb-8">
+
+        <h3 class="text-lg font-medium text-gray-700 mb-4">
+            Create Task
+        </h3>
+
+        <form id="taskForm" class="grid grid-cols-2 gap-4">
+
+            <input id="title" placeholder="Task title"
+                class="col-span-2 p-2 border rounded-lg">
+
+            <textarea id="description" placeholder="Description"
+                class="col-span-2 p-2 border rounded-lg"></textarea>
+
+            <select id="project_id" class="p-2 border rounded-lg"></select>
+
+            <select id="assigned_to" class="p-2 border rounded-lg"></select>
+
+            <input type="date" id="deadline"
+                class="col-span-2 p-2 border rounded-lg">
+
+            <button class="col-span-2 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">
+                Create Task
+            </button>
+
+        </form>
+    </div>
+
+    <!-- TASK LIST -->
+    <div>
+        <h3 class="text-lg font-medium text-gray-700 mb-4">All Tasks</h3>
+
+        <div id="taskList" class="space-y-3"></div>
+    </div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const token = localStorage.getItem("token");
+    const currentUser = localStorage.getItem("username"); // 🔥 IMPORTANT
+
+    let currentUserRole = null;
+
+    // 🔹 GET CURRENT USER ROLE
+    async function getCurrentUser() {
+        const res = await fetch("/api/auth/me/", {
+            headers: { "Authorization": "Bearer " + token }
+        });
+
+        const data = await res.json();
+        currentUserRole = data.role;
+
+        const form = document.getElementById("taskCreateSection");
+
+        // Only admin can create tasks
+        if (currentUserRole === "ADMIN") {
+            form.style.display = "block";
+        } else {
+            form.style.display = "none";
+        }
+    }
+
+    // 🔹 LOAD PROJECTS
+    async function loadProjectsDropdown() {
+        const res = await fetch("/api/projects/my/", {
+            headers: { "Authorization": "Bearer " + token }
+        });
+
+        const data = await res.json();
+
+        const projectSelect = document.getElementById("project_id");
+        projectSelect.innerHTML = `<option>Select Project</option>`;
+
+        data.forEach(p => {
+            projectSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+        });
+    }
+
+    // 🔹 LOAD MEMBERS
+    async function loadMembers(projectId) {
+        const res = await fetch(`/api/projects/${projectId}/members/`, {
+            headers: { "Authorization": "Bearer " + token }
+        });
+
+        const data = await res.json();
+
+        const memberSelect = document.getElementById("assigned_to");
+        memberSelect.innerHTML = "";
+
+        data.forEach(u => {
+            memberSelect.innerHTML += `<option value="${u.id}">${u.username}</option>`;
+        });
+    }
+
+    document.getElementById("project_id").addEventListener("change", function () {
+        if (this.value) loadMembers(this.value);
+    });
+
+    // 🔹 CREATE TASK
+    document.getElementById("taskForm").addEventListener("submit", async function (e) {
+        e.preventDefault();
+
+        const res = await fetch("/api/tasks/create/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            },
+            body: JSON.stringify({
+                title: title.value,
+                description: description.value,
+                project_id: project_id.value,
+                assigned_to: assigned_to.value,
+                deadline: deadline.value
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.task_id) {
+            alert("Task created!");
+            loadTasks();
+        } else {
+            alert(data.error);
+        }
+    });
+
+    // 🔹 LOAD TASKS
+    async function loadTasks() {
+        const res = await fetch("/api/tasks/my/", {
+            headers: { "Authorization": "Bearer " + token }
+        });
+
+        const data = await res.json();
+
+        const taskList = document.getElementById("taskList");
+        taskList.innerHTML = "";
+
+        data.forEach(t => {
+
+            const isOwner = (t.assigned_to === currentUser);
+
+            taskList.innerHTML += `
+            <div class="bg-white border p-4 rounded-xl flex justify-between items-center shadow-sm hover:shadow-md transition">
+
+                <div>
+                    <h4 class="font-medium text-gray-800">${t.title}</h4>
+
+                    <p class="text-sm text-gray-500">
+                        ${t.project} • ${t.deadline} • 👤 ${t.assigned_to}
+                    </p>
+
+                    <span class="text-xs px-2 py-1 rounded
+                        ${t.status === 'DONE' ? 'bg-green-100 text-green-600' :
+                          t.status === 'IN_PROGRESS' ? 'bg-yellow-100 text-yellow-600' :
+                          'bg-gray-100 text-gray-600'}">
+                        ${t.status}
+                    </span>
+                </div>
+
+                ${
+                    isOwner
+                    ? `
+                    <div class="space-x-2">
+                        <button onclick="updateStatus(${t.id}, 'IN_PROGRESS')"
+                            class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm">
+                            Start
+                        </button>
+
+                        <button onclick="updateStatus(${t.id}, 'DONE')"
+                            class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm">
+                            Done
+                        </button>
+                    </div>
+                    `
+                    : `
+                    <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                        View Only
+                    </span>
+                    `
+                }
+
+            </div>
+            `;
+        });
+    }
+
+    // 🔹 UPDATE STATUS
+    window.updateStatus = async function(taskId, status) {
+        await fetch(`/api/tasks/${taskId}/update/`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + token
+            },
+            body: JSON.stringify({ status })
+        });
+
+        loadTasks();
+    }
+
+    // 🔹 INIT
+    async function init() {
+        await getCurrentUser();
+        await loadProjectsDropdown();
+        await loadTasks();
+    }
+
+    init();
+
+});
+</script>
+
+{% endblock %}
